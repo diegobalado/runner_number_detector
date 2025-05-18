@@ -1,123 +1,25 @@
-import sys
-import os
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                            QPushButton, QLabel, QFileDialog, QMessageBox,
-                            QInputDialog, QProgressDialog)
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QPixmap
+import streamlit as st
 import cv2
 import numpy as np
 import pytesseract
 from PIL import Image
+import os
 import shutil
 
-def get_tesseract_path():
-    if getattr(sys, 'frozen', False):
-        # Si estamos en un ejecutable
-        base_path = sys._MEIPASS
-        tesseract_path = os.path.join(base_path, 'tesseract', 'tesseract.exe')
-    else:
-        # Si estamos en desarrollo
-        tesseract_path = 'tesseract'
-    return tesseract_path
+# Configuración de la página
+st.set_page_config(
+    page_title="Detector de Números de Corredor",
+    page_icon="🏃",
+    layout="wide"
+)
 
-class NumberDetectorApp(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Detector de Números de Corredor")
-        self.setGeometry(100, 100, 800, 600)
-        
-        # Configurar Tesseract
-        pytesseract.pytesseract.tesseract_cmd = get_tesseract_path()
-        
-        # Widget principal
-        main_widget = QWidget()
-        self.setCentralWidget(main_widget)
-        layout = QVBoxLayout()
-        main_widget.setLayout(layout)
-        
-        # Botones y elementos de la interfaz
-        self.select_button = QPushButton("Seleccionar Imágenes")
-        self.select_button.clicked.connect(self.select_images)
-        
-        self.image_label = QLabel()
-        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.image_label.setMinimumSize(400, 300)
-        
-        # Añadir widgets al layout
-        layout.addWidget(self.select_button)
-        layout.addWidget(self.image_label)
-        
-        # Variables de estado
-        self.current_image_path = None
-        self.current_image = None
-        self.image_list = []
-        self.current_index = 0
-        self.base_name = ""
+# Título de la aplicación
+st.title("Detector de Números de Corredor")
 
-    def select_images(self):
-        # Solicitar el nombre base para las imágenes
-        base_name, ok = QInputDialog.getText(
-            self,
-            'Nombre Base',
-            'Ingrese el nombre base para las imágenes procesadas:'
-        )
-        
-        if not ok or not base_name:
-            return
-            
-        self.base_name = base_name
-        
-        # Seleccionar múltiples imágenes
-        file_names, _ = QFileDialog.getOpenFileNames(
-            self,
-            "Seleccionar Imágenes",
-            "",
-            "Imágenes (*.png *.jpg *.jpeg)"
-        )
-        
-        if not file_names:
-            return
-            
-        self.image_list = file_names
-        self.current_index = 0
-        
-        # Crear directorio para imágenes etiquetadas si no existe
-        output_dir = os.path.join(os.path.dirname(file_names[0]), 'etiquetadas')
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # Procesar las imágenes
-        self.process_next_image()
-
-    def process_next_image(self):
-        if self.current_index >= len(self.image_list):
-            # Mostrar resumen final
-            QMessageBox.information(
-                self,
-                'Proceso Completado',
-                f'Se han procesado {len(self.image_list)} imágenes.\n'
-                f'Las imágenes etiquetadas se encuentran en la carpeta "etiquetadas".'
-            )
-            return
-            
-        self.current_image_path = self.image_list[self.current_index]
-        self.current_image = cv2.imread(self.current_image_path)
-        
-        # Mostrar la imagen actual
-        pixmap = QPixmap(self.current_image_path)
-        scaled_pixmap = pixmap.scaled(400, 300, Qt.AspectRatioMode.KeepAspectRatio)
-        self.image_label.setPixmap(scaled_pixmap)
-        
-        # Detectar número
-        self.detect_number()
-
-    def detect_number(self):
-        if self.current_image is None:
-            return
-        
+def detect_number(image):
         try:
             # Convertir la imagen a escala de grises
-            gray = cv2.cvtColor(self.current_image, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             
             # Suavizado muy ligero
             blurred = cv2.GaussianBlur(gray, (3,3), 0)
@@ -180,75 +82,73 @@ class NumberDetectorApp(QMainWindow):
                                      key=lambda x: x[1], 
                                      reverse=True)
                 
-                reply = QMessageBox.question(
-                    self,
-                    'Número Detectado',
-                    f'Se detectó el número {sorted_numbers[0][0]}.\n'
-                    f'¿Desea usar este número?',
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                )
-                
-                if reply == QMessageBox.StandardButton.Yes:
-                    self.save_image(sorted_numbers[0][0])
-                else:
-                    self.ask_manual_number()
-            else:
-                self.ask_manual_number()
-                
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                'Error',
-                f'Error al procesar la imagen: {str(e)}'
-            )
-            self.ask_manual_number()
-
-    def ask_manual_number(self):
-        number, ok = QInputDialog.getText(
-            self,
-            'Entrada Manual',
-            'No se detectó ningún número válido.\n'
-            'Por favor, ingrese el número manualmente:'
-        )
-        
-        if ok and number:
-            if number.isdigit() and 1 <= len(number) <= 3:
-                self.save_image(number)
-            else:
-                QMessageBox.warning(
-                    self,
-                    'Error',
-                    'Por favor ingrese un número válido de 1-3 dígitos'
-                )
-                self.ask_manual_number()
-
-    def save_image(self, number):
-        try:
-            # Crear nombre de archivo
-            output_dir = os.path.join(os.path.dirname(self.current_image_path), 'etiquetadas')
-            file_ext = os.path.splitext(self.current_image_path)[1]
-            new_filename = f"{self.base_name}-{number}{file_ext}"
-            new_path = os.path.join(output_dir, new_filename)
+            return sorted_numbers[0][0]
+        return None
             
-            # Copiar y renombrar la imagen
-            shutil.copy2(self.current_image_path, new_path)
-            
-            # Procesar siguiente imagen
-            self.current_index += 1
-            self.process_next_image()
-            
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                'Error',
-                f'Error al guardar la imagen: {str(e)}'
-            )
+    except Exception as e:
+        st.error(f'Error al procesar la imagen: {str(e)}')
+        return None
 
 def main():
-    app = QApplication(sys.argv)
-    window = NumberDetectorApp()
-    window.show()
-    sys.exit(app.exec())
+    # Input para el nombre base
+    base_name = st.text_input("Ingrese el nombre base para las imágenes procesadas:")
+    
+    # Uploader de imágenes
+    uploaded_files = st.file_uploader("Seleccione las imágenes", 
+                                    type=['png', 'jpg', 'jpeg'],
+                                    accept_multiple_files=True)
+    
+    if uploaded_files and base_name:
+        # Crear directorio para imágenes etiquetadas
+        output_dir = "etiquetadas"
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Procesar cada imagen
+        for uploaded_file in uploaded_files:
+            # Leer la imagen
+            file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+            image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+            
+            # Mostrar la imagen
+            st.image(image, caption="Imagen cargada", use_column_width=True)
+            
+            # Detectar número
+            detected_number = detect_number(image)
+            
+            if detected_number:
+                st.success(f"Número detectado: {detected_number}")
+                
+                # Guardar la imagen con el número detectado
+                file_ext = os.path.splitext(uploaded_file.name)[1]
+                new_filename = f"{base_name}-{detected_number}{file_ext}"
+                new_path = os.path.join(output_dir, new_filename)
+                
+                # Convertir la imagen a formato PIL y guardarla
+                pil_image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+                pil_image.save(new_path)
+                
+                st.info(f"Imagen guardada como: {new_filename}")
+            else:
+                # Input manual para el número
+                manual_number = st.text_input(
+                    f"No se detectó ningún número válido para {uploaded_file.name}. "
+                    "Por favor, ingrese el número manualmente:",
+                    key=f"manual_{uploaded_file.name}"
+                )
+                
+                if manual_number and manual_number.isdigit() and 1 <= len(manual_number) <= 3:
+                    # Guardar la imagen con el número manual
+                    file_ext = os.path.splitext(uploaded_file.name)[1]
+                    new_filename = f"{base_name}-{manual_number}{file_ext}"
+            new_path = os.path.join(output_dir, new_filename)
+            
+                    # Convertir la imagen a formato PIL y guardarla
+                    pil_image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+                    pil_image.save(new_path)
+                    
+                    st.info(f"Imagen guardada como: {new_filename}")
+                elif manual_number:
+                    st.warning("Por favor ingrese un número válido de 1-3 dígitos")
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main() 
