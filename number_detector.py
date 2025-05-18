@@ -181,17 +181,16 @@ def main():
                     )
                     
                     if manual_number and manual_number.isdigit() and 1 <= len(manual_number) <= 3:
-                        if st.button("Guardar corrección", key="save_correction"):
-                            new_filename = save_image(image, manual_number,
-                                                    st.session_state.base_name,
-                                                    os.path.splitext(current_file.name)[1],
-                                                    output_dir)
-                            if new_filename:
-                                st.info(f"Imagen guardada como: {new_filename}")
-                                st.session_state.processed_files.add(current_file.name)
-                                st.session_state.current_index += 1
-                                st.session_state.show_correction = False
-                                st.rerun()
+                        new_filename = save_image(image, manual_number,
+                                                st.session_state.base_name,
+                                                os.path.splitext(current_file.name)[1],
+                                                output_dir)
+                        if new_filename:
+                            st.info(f"Imagen guardada como: {new_filename}")
+                            st.session_state.processed_files.add(current_file.name)
+                            st.session_state.current_index += 1
+                            st.session_state.show_correction = False
+                            st.rerun()
                     elif manual_number:
                         st.warning("Por favor ingrese un número válido de 1-3 dígitos")
             else:
