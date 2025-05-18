@@ -19,13 +19,13 @@ def detect_number(image):
     try:
         # Convertir la imagen a escala de grises
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        
+            
         # Suavizado muy ligero
         blurred = cv2.GaussianBlur(gray, (3,3), 0)
-        
+            
         # Umbral que sabemos que funciona bien
         _, thresh = cv2.threshold(blurred, 115, 255, cv2.THRESH_BINARY)
-        
+            
         # Detectar bordes
         edges = cv2.Canny(thresh, 100, 200)
         
@@ -78,76 +78,133 @@ def detect_number(image):
             
             # Ordenar por frecuencia
             sorted_numbers = sorted(unique_numbers.items(), 
-                                 key=lambda x: x[1], 
-                                 reverse=True)
+                                    key=lambda x: x[1], 
+                                    reverse=True)
             
-            return sorted_numbers[0][0]
+        return sorted_numbers[0][0]
         return None
             
     except Exception as e:
         st.error(f'Error al procesar la imagen: {str(e)}')
         return None
 
+def save_image(image, number, base_name, file_ext, output_dir):
+    try:
+        new_filename = f"{base_name}-{number}{file_ext}"
+        new_path = os.path.join(output_dir, new_filename)
+        
+        # Convertir la imagen a formato PIL y guardarla
+        pil_image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+        pil_image.save(new_path)
+        
+        return new_filename
+    except Exception as e:
+        st.error(f'Error al guardar la imagen: {str(e)}')
+        return None
+
 def main():
+    # Inicializar el estado de la sesión si no existe
+    if 'current_index' not in st.session_state:
+        st.session_state.current_index = 0
+    if 'uploaded_files' not in st.session_state:
+        st.session_state.uploaded_files = []
+    if 'base_name' not in st.session_state:
+        st.session_state.base_name = ""
+    if 'processed_files' not in st.session_state:
+        st.session_state.processed_files = set()
+
     # Input para el nombre base
-    base_name = st.text_input("Ingrese el nombre base para las imágenes procesadas:")
-    
+    base_name = st.text_input("Ingrese el nombre base para las imágenes procesadas:", 
+                            value=st.session_state.base_name)
+    if base_name:
+        st.session_state.base_name = base_name
+
     # Uploader de imágenes
     uploaded_files = st.file_uploader("Seleccione las imágenes", 
                                     type=['png', 'jpg', 'jpeg'],
                                     accept_multiple_files=True)
     
-    if uploaded_files and base_name:
+    if uploaded_files:
+        st.session_state.uploaded_files = uploaded_files
+
+    if st.session_state.uploaded_files and st.session_state.base_name:
         # Crear directorio para imágenes etiquetadas
         output_dir = "etiquetadas"
         os.makedirs(output_dir, exist_ok=True)
-        
-        # Procesar cada imagen
-        for uploaded_file in uploaded_files:
-            # Leer la imagen
-            file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-            image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+
+        # Mostrar progreso
+        total_files = len(st.session_state.uploaded_files)
+        processed_count = len(st.session_state.processed_files)
+        st.progress(processed_count / total_files if total_files > 0 else 0)
+        st.write(f"Procesando imagen {st.session_state.current_index + 1} de {total_files}")
+
+        if st.session_state.current_index < len(st.session_state.uploaded_files):
+            current_file = st.session_state.uploaded_files[st.session_state.current_index]
             
-            # Mostrar la imagen
-            st.image(image, caption="Imagen cargada", use_column_width=True)
-            
-            # Detectar número
-            detected_number = detect_number(image)
-            
-            if detected_number:
-                st.success(f"Número detectado: {detected_number}")
+            if current_file.name not in st.session_state.processed_files:
+                # Leer la imagen
+                file_bytes = np.asarray(bytearray(current_file.read()), dtype=np.uint8)
+                image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
                 
-                # Guardar la imagen con el número detectado
-                file_ext = os.path.splitext(uploaded_file.name)[1]
-                new_filename = f"{base_name}-{detected_number}{file_ext}"
-                new_path = os.path.join(output_dir, new_filename)
+                # Mostrar la imagen
+                st.image(image, caption=f"Imagen: {current_file.name}", use_column_width=True)
                 
-                # Convertir la imagen a formato PIL y guardarla
-                pil_image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-                pil_image.save(new_path)
+                # Detectar número
+                detected_number = detect_number(image)
                 
-                st.info(f"Imagen guardada como: {new_filename}")
+                if detected_number:
+                    st.success(f"Número detectado: {detected_number}")
+                    
+                    # Crear dos columnas para los botones
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        if st.button("Confirmar número", key="confirm"):
+                            new_filename = save_image(image, detected_number, 
+                                                    st.session_state.base_name,
+                                                    os.path.splitext(current_file.name)[1],
+                                                    output_dir)
+                            if new_filename:
+                                st.info(f"Imagen guardada como: {new_filename}")
+                                st.session_state.processed_files.add(current_file.name)
+                                st.session_state.current_index += 1
+                                st.rerun()
+                    
+                    with col2:
+                        if st.button("Corregir número", key="correct"):
+                            st.session_state.show_correction = True
+                
+                if st.session_state.get('show_correction', False):
+                    manual_number = st.text_input(
+                        "Ingrese el número correcto:",
+                        key=f"manual_{current_file.name}"
+                    )
+                    
+                    if manual_number and manual_number.isdigit() and 1 <= len(manual_number) <= 3:
+                        if st.button("Guardar corrección", key="save_correction"):
+                            new_filename = save_image(image, manual_number,
+                                                    st.session_state.base_name,
+                                                    os.path.splitext(current_file.name)[1],
+                                                    output_dir)
+                            if new_filename:
+                                st.info(f"Imagen guardada como: {new_filename}")
+                                st.session_state.processed_files.add(current_file.name)
+                                st.session_state.current_index += 1
+                                st.session_state.show_correction = False
+                                st.rerun()
+                    elif manual_number:
+                        st.warning("Por favor ingrese un número válido de 1-3 dígitos")
             else:
-                # Input manual para el número
-                manual_number = st.text_input(
-                    f"No se detectó ningún número válido para {uploaded_file.name}. "
-                    "Por favor, ingrese el número manualmente:",
-                    key=f"manual_{uploaded_file.name}"
-                )
-                
-                if manual_number and manual_number.isdigit() and 1 <= len(manual_number) <= 3:
-                    # Guardar la imagen con el número manual
-                    file_ext = os.path.splitext(uploaded_file.name)[1]
-                    new_filename = f"{base_name}-{manual_number}{file_ext}"
-                    new_path = os.path.join(output_dir, new_filename)
-                    
-                    # Convertir la imagen a formato PIL y guardarla
-                    pil_image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-                    pil_image.save(new_path)
-                    
-                    st.info(f"Imagen guardada como: {new_filename}")
-                elif manual_number:
-                    st.warning("Por favor ingrese un número válido de 1-3 dígitos")
+                st.session_state.current_index += 1
+                st.rerun()
+
+        if processed_count == total_files:
+            st.success("¡Todas las imágenes han sido procesadas!")
+            if st.button("Procesar nuevo lote"):
+                st.session_state.current_index = 0
+                st.session_state.processed_files = set()
+                st.session_state.uploaded_files = []
+                st.rerun()
 
 if __name__ == "__main__":
     main() 
